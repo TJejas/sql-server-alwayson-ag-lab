@@ -1,0 +1,45 @@
+# 3-node SQL Server (Linux) Always On Availability Group lab.
+# Each container's hostname becomes @@SERVERNAME, which the AG uses as the replica name.
+
+x-mssql: &mssql
+  image: mcr.microsoft.com/mssql/server:${MSSQL_TAG:-2025-latest}
+  environment:
+    ACCEPT_EULA: "Y"
+    MSSQL_PID: Developer
+    MSSQL_SA_PASSWORD: ${SA_PASSWORD:?set SA_PASSWORD in .env}
+    MSSQL_ENABLE_HADR: "1"          # turns on the Always On feature
+    MSSQL_AGENT_ENABLED: "false"
+    MSSQL_MEMORY_LIMIT_MB: "1024"   # keeps 3 nodes inside a small Docker VM
+  volumes:
+    - ./sql:/scripts:ro             # our T-SQL scripts, visible inside each container
+  networks: [agnet]
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' -b -o /dev/null"]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+    start_period: 20s
+
+services:
+  sql1:
+    <<: *mssql
+    container_name: sql1
+    hostname: sql1
+    ports: ["14331:1433"]
+
+  sql2:
+    <<: *mssql
+    container_name: sql2
+    hostname: sql2
+    ports: ["14332:1433"]
+
+  sql3:
+    <<: *mssql
+    container_name: sql3
+    hostname: sql3
+    ports: ["14333:1433"]
+
+networks:
+  agnet:
+    name: agnet
+    driver: bridge

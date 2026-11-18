@@ -1,0 +1,65 @@
+
+==> Step 1: start 3 SQL Server containers (hostnames sql1, sql2, sql3)
+  [OK] sql1 is accepting connections
+  [OK] sql2 is accepting connections
+  [OK] sql3 is accepting connections
+  sql1: @@SERVERNAME=sql1, IsHadrEnabled=1
+  sql2: @@SERVERNAME=sql2, IsHadrEnabled=1
+  sql3: @@SERVERNAME=sql3, IsHadrEnabled=1
+
+==> Step 2: master key, endpoint login and AlwaysOn_health on every node
+  sql1: master key, dbm_login and AlwaysOn_health ready
+  sql2: master key, dbm_login and AlwaysOn_health ready
+  sql3: master key, dbm_login and AlwaysOn_health ready
+
+==> Step 3: create the endpoint certificate on sql1 and copy it to sql2/sql3
+  sql1: dbm_certificate created
+  exported certificate (1964 hex chars) and encrypted private key (3578 hex chars)
+  server_name name subject expiry_date thumbprint
+  ----------- ---- ------- ----------- ----------
+  sql2 dbm_certificate AG endpoint authentication 2035-12-31 00:00:00.000 0x8999435E3CC169174849EE5437A4F1A95DC3A79E
+  server_name name subject expiry_date thumbprint
+  ----------- ---- ------- ----------- ----------
+  sql3 dbm_certificate AG endpoint authentication 2035-12-31 00:00:00.000 0x8999435E3CC169174849EE5437A4F1A95DC3A79E
+
+==> Step 4: database mirroring endpoint on port 5022 on every node
+  server_name name state_desc role_desc connection_auth_desc encryption_algorithm_desc port
+  ----------- ---- ---------- --------- -------------------- ------------------------- ----
+  sql1 Hadr_endpoint STARTED ALL CERTIFICATE AES 5022
+  server_name name state_desc role_desc connection_auth_desc encryption_algorithm_desc port
+  ----------- ---- ---------- --------- -------------------- ------------------------- ----
+  sql2 Hadr_endpoint STARTED ALL CERTIFICATE AES 5022
+  server_name name state_desc role_desc connection_auth_desc encryption_algorithm_desc port
+  ----------- ---- ---------- --------- -------------------- ------------------------- ----
+  sql3 Hadr_endpoint STARTED ALL CERTIFICATE AES 5022
+
+==> Step 5: create AG 'ag1' on sql1 (CLUSTER_TYPE = NONE, asynchronous commit), join sql2 and sql3
+  sql1: availability group ag1 created
+  sql2: joined ag1
+  sql3: joined ag1
+
+==> Step 6: create SalesDB on sql1, back it up, add it to the AG (automatic seeding)
+  Processed 416 pages for database 'SalesDB', file 'SalesDB' on file 1.
+  Processed 2 pages for database 'SalesDB', file 'SalesDB_log' on file 1.
+  BACKUP DATABASE successfully processed 418 pages in 0.094 seconds (34.699 MB/sec).
+  sql1: SalesDB added to ag1, automatic seeding started
+  [OK] sql2: SalesDB is SYNCHRONIZING
+  [OK] sql3: SalesDB is SYNCHRONIZING
+  [OK] sql2 sees 5 rows
+  [OK] sql3 sees 5 rows
+
+==> Step 7: AG health (from the primary)
+  --- Replicas ---
+  replica role commit_mode failover connected health
+  ------- ---- ----------- -------- --------- ------
+  sql1 PRIMARY ASYNCHRONOUS_COMMIT MANUAL CONNECTED HEALTHY
+  sql2 SECONDARY ASYNCHRONOUS_COMMIT MANUAL CONNECTED HEALTHY
+  sql3 SECONDARY ASYNCHRONOUS_COMMIT MANUAL CONNECTED HEALTHY
+  --- Databases (queues in KB; 0 = fully caught up) ---
+  replica db sync_state suspended log_send_queue_kb redo_queue_kb last_commit_time
+  ------- -- ---------- --------- ----------------- ------------- ----------------
+  sql1 SalesDB SYNCHRONIZED 0 0 0 NULL
+  sql2 SalesDB SYNCHRONIZING 0 60 0 NULL
+  sql3 SalesDB SYNCHRONIZING 0 60 0 NULL
+
+Lab ready. Primary: sql1 (localhost,14331). Secondaries: sql2 (14332), sql3 (14333).

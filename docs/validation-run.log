@@ -1,0 +1,108 @@
+
+==> TEST 1: replication sql1 -> sql2, sql3
+  [OK] sql2 sees 105 rows
+  [OK] sql3 sees 105 rows
+
+==> TEST 2: secondaries are read-only
+  [OK] sql2 rejected the write (read-only secondary)
+  [OK] sql3 rejected the write (read-only secondary)
+
+==> TEST 3: planned failover sql1 -> sql2 (no data loss)
+
+==> Planned failover: sql1 -> sql2
+  1/5 switch sql1 and sql2 to synchronous commit, wait until sql2 is SYNCHRONIZED
+  sql1 and sql2 switched to SYNCHRONOUS_COMMIT
+  [OK] sql2: SalesDB is SYNCHRONIZED
+  2/5 take ag1 offline on sql1 and sql3
+  sql1: ag1 taken OFFLINE
+  sql3: ag1 taken OFFLINE
+  3/5 promote sql2
+  sql2: is now PRIMARY
+  4/5 bring sql1 and sql3 back as secondaries
+  sql1: SECONDARY, data movement running
+  sql3: SECONDARY, data movement running
+  5/5 return to asynchronous commit
+  sql2: all replicas back to ASYNCHRONOUS_COMMIT
+  [OK] sql1: SalesDB is SYNCHRONIZING
+  [OK] sql3: SalesDB is SYNCHRONIZING
+  [OK] primary is now sql2
+  [OK] sql2 sees 105 rows
+  [OK] sql1 sees 155 rows
+  [OK] sql3 sees 155 rows
+
+==> TEST 4: unplanned outage. Kill primary sql2, force failover to sql3
+
+==> Disaster: killing primary sql2 (docker kill = power loss, no clean shutdown)
+  [OK] sql2 is down
+
+==> Forced failover to sql3
+  sql1: ag1 taken OFFLINE
+  sql3: is now PRIMARY
+  sql3: removed failed replica sql2 from ag1
+  sql1: SECONDARY, data movement running
+  [OK] primary is now sql3. Bring sql2 back with: scripts/rejoin.sh sql2
+  rows before crash: 155, rows on new primary: 155, lost: 0
+  [OK] sql1 sees 180 rows
+
+==> TEST 5: bring sql2 back and rejoin it as secondary
+
+==> Restarting sql2 (current primary is sql3)
+  [OK] sql2 is accepting connections
+  sql2 came back with local role: PRIMARY  <- stale, it still thinks it owns ag1
+
+==> Rejoining sql2 as a fresh secondary of sql3
+  sql2: stale ag1 and SalesDB removed
+  sql3: sql2 added back to ag1
+  sql2: joined ag1
+  [OK] sql2: SalesDB is SYNCHRONIZING
+  [OK] sql2 role: SECONDARY
+  [OK] sql2 sees 180 rows
+
+==> TEST 6: planned failback to sql1 and final consistency check
+
+==> Planned failover: sql3 -> sql1
+  1/5 switch sql3 and sql1 to synchronous commit, wait until sql1 is SYNCHRONIZED
+  sql3 and sql1 switched to SYNCHRONOUS_COMMIT
+  [OK] sql1: SalesDB is SYNCHRONIZED
+  2/5 take ag1 offline on sql3 and sql2
+  sql3: ag1 taken OFFLINE
+  sql2: ag1 taken OFFLINE
+  3/5 promote sql1
+  sql1: is now PRIMARY
+  4/5 bring sql3 and sql2 back as secondaries
+  sql3: SECONDARY, data movement running
+  sql2: SECONDARY, data movement running
+  5/5 return to asynchronous commit
+  sql1: all replicas back to ASYNCHRONOUS_COMMIT
+  [OK] sql3: SalesDB is SYNCHRONIZING
+  [OK] sql2: SalesDB is SYNCHRONIZING
+  [OK] primary is now sql1
+  [OK] sql1 sees 180 rows
+  [OK] sql2 sees 180 rows
+  [OK] sql3 sees 180 rows
+  written_on_primary rows
+  ------------------ ----
+  sql1 105
+  sql2 50
+  sql3 25
+
+==> Containers
+  sql1: running | role=PRIMARY | SalesDB=SYNCHRONIZED | rows=180
+  sql2: running | role=SECONDARY | SalesDB=SYNCHRONIZING | rows=180
+  sql3: running | role=SECONDARY | SalesDB=SYNCHRONIZING | rows=180
+
+==> AG health as seen by primary sql1
+  --- Replicas ---
+  replica role commit_mode failover connected health
+  ------- ---- ----------- -------- --------- ------
+  sql1 PRIMARY ASYNCHRONOUS_COMMIT MANUAL CONNECTED HEALTHY
+  sql2 SECONDARY ASYNCHRONOUS_COMMIT MANUAL CONNECTED HEALTHY
+  sql3 SECONDARY ASYNCHRONOUS_COMMIT MANUAL CONNECTED HEALTHY
+  --- Databases (queues in KB; 0 = fully caught up) ---
+  replica db sync_state suspended log_send_queue_kb redo_queue_kb last_commit_time
+  ------- -- ---------- --------- ----------------- ------------- ----------------
+  sql1 SalesDB SYNCHRONIZED 0 0 0 2026-11-18 20:37:45.883
+  sql2 SalesDB SYNCHRONIZING 0 0 0 2026-11-18 20:37:45.883
+  sql3 SalesDB SYNCHRONIZING 0 0 0 2026-11-18 20:37:45.883
+
+ALL TESTS PASSED in 164s
